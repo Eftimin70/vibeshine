@@ -1005,7 +1005,7 @@ namespace amf {
     int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
     if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1; // Mindestens eine Zeile pro Frame
 
-encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, ctu_rows_per_frame);
+    encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, ctu_rows_per_frame);
 // END INSERT1
  
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
