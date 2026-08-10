@@ -9,7 +9,7 @@ on:
         description: Version string embedded in the tester installer.
         required: false
         type: string
-        default: '0.0.0'
+        default: '1.18.x'
 
 run-name: Tester Windows Installer ${{ github.ref_name }} (${{ inputs.build_version || '0.0.0' }})
 
