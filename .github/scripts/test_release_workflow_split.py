@@ -40,6 +40,13 @@ class ReleaseWorkflowSplitTest(unittest.TestCase):
         )
         self.assertIn("Leave \\`build_run_id\\` empty", workflow_text)
         self.assertIn("optional recovery override", workflow_text)
+        self.assertIn('if tag.startswith("v"):', workflow_text)
+        self.assertIn("release source tags must be v-less", workflow_text)
+        self.assertIn(
+            "valid_candidates.append((key, tag, notes_file, release_commit))",
+            workflow_text,
+        )
+        self.assertNotIn("def canonical_release_tag", workflow_text)
 
     def test_manual_workflow_auto_resolves_an_exact_valid_build(self) -> None:
         workflow = load_workflow("sign-release.yml")
@@ -53,6 +60,10 @@ class ReleaseWorkflowSplitTest(unittest.TestCase):
         self.assertIn("workflow_dispatch", workflow["on"])
         self.assertEqual(dispatch_inputs["build_run_id"]["required"], "false")
         self.assertIn("Optional recovery override", dispatch_inputs["build_run_id"]["description"])
+        self.assertEqual(dispatch_inputs["signed_run_id"]["required"], "false")
+        self.assertIn("finalized signed artifacts", dispatch_inputs["signed_run_id"]["description"])
+        self.assertEqual(dispatch_inputs["release_draft"]["type"], "boolean")
+        self.assertEqual(dispatch_inputs["release_draft"]["default"], "false")
         self.assertIn("Auto-resolved exact CI build", workflow_text)
         self.assertIn("source_run_is_valid", workflow_text)
         self.assertIn(".head_sha == $release_commit", workflow_text)
@@ -68,6 +79,9 @@ class ReleaseWorkflowSplitTest(unittest.TestCase):
         )
         self.assertIn("Vibeshine.msi", workflow_text)
         self.assertIn("windows-versioninfo-Windows", workflow_text)
+        self.assertIn('source_tag="${requested_tag#v}"', workflow_text)
+        self.assertIn('tag_name="${source_tag}"', workflow_text)
+        self.assertNotIn('tag_name="v${release_version}"', workflow_text)
         self.assertEqual(
             signing_inputs["artifact_source_run_id"],
             "${{ needs.resolve_release.outputs.build_run_id }}",
@@ -79,6 +93,52 @@ class ReleaseWorkflowSplitTest(unittest.TestCase):
             "600",
         )
         self.assertIn("release", jobs)
+        self.assertEqual(
+            signing_inputs["release_tag"],
+            "${{ needs.resolve_release.outputs.tag_name }}",
+        )
+        self.assertIn('--arg source_tag "${TAG_NAME}"', workflow_text)
+        self.assertIn('--arg legacy_tag "${legacy_tag}"', workflow_text)
+        self.assertIn('--arg tag_name "${publish_tag}"', workflow_text)
+        self.assertIn(".tag_name // $source_tag", workflow_text)
+        self.assertNotIn("target_commitish", workflow_text)
+        self.assertIn("signed_run_is_valid", workflow_text)
+        self.assertIn("release-provenance.json", workflow_text)
+        self.assertIn("Reusing explicitly requested finalized signed artifacts", workflow_text)
+        self.assertIn("Auto-reusing provenance-matched signed artifacts", workflow_text)
+        self.assertEqual(
+            jobs["build-windows"]["if"],
+            "needs.resolve_release.outputs.signed_run_id == ''",
+        )
+        self.assertIn("reuse-windows", jobs)
+        reuse_steps = {
+            step["name"]: step for step in jobs["reuse-windows"]["steps"]
+        }
+        self.assertEqual(
+            reuse_steps["Download finalized signed artifacts"]["with"]["run-id"],
+            "${{ needs.resolve_release.outputs.signed_run_id }}",
+        )
+        reuse_verification = reuse_steps[
+            "Verify reused signed artifacts and provenance"
+        ]["run"]
+        self.assertIn("Get-AuthenticodeSignature", reuse_verification)
+        self.assertIn("$signature.Status -ne 'Valid'", reuse_verification)
+        self.assertIn("Provenance hash mismatch", reuse_verification)
+        self.assertIn("reuse-windows", jobs["release"]["needs"])
+        self.assertIn("needs.build-windows.result == 'success'", jobs["release"]["if"])
+        self.assertIn("needs.reuse-windows.result == 'success'", jobs["release"]["if"])
+        self.assertIn(
+            '[[ "${asset_name}" == "release-provenance.json" ]] && continue',
+            workflow_text,
+        )
+
+        release_steps = jobs["release"]["steps"]
+        close_issues = next(
+            step for step in release_steps if step["name"] == "Close fixed issues for release"
+        )
+        self.assertEqual(close_issues["if"], "inputs.release_draft == false")
+        self.assertIn('--argjson draft "${RELEASE_DRAFT}"', workflow_text)
+        self.assertIn('if [[ "${RELEASE_DRAFT}" == "true" ]]', workflow_text)
 
     def test_reusable_windows_workflow_supports_deferred_signing(self) -> None:
         workflow_path = ROOT / ".github" / "workflows" / "ci-windows.yml"
@@ -136,10 +196,18 @@ class ReleaseWorkflowSplitTest(unittest.TestCase):
             workflow_text,
         )
         self.assertIn("Deferred signing requires signpath_api_token.", workflow_text)
+        self.assertIn("Record release artifact provenance", workflow_text)
+        self.assertIn("Upload release provenance", workflow_text)
+        self.assertIn("source_build_run_id", workflow_text)
         self.assertIn(
             "-DBUILD_TESTS=${{ inputs.build_tests && 'ON' || 'OFF' }}",
             workflow_text,
         )
+        options_text = (ROOT / "cmake" / "prep" / "options.cmake").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('option(BUILD_TESTS "Build unit tests." ON)', options_text)
+        self.assertNotIn("set(BUILD_TESTS", options_text)
         self.assertIn(
             '"${source_path}" != ".github/workflows/ci.yml" && "${source_path}" != ".github/workflows/ci.yml@"*',
             workflow_text,
@@ -165,6 +233,61 @@ class ReleaseWorkflowSplitTest(unittest.TestCase):
 
 
 class WindowsWorkflowEfficiencyTest(unittest.TestCase):
+    def test_web_dependency_install_does_not_invalidate_cmake_globs(self) -> None:
+        web_targets = (ROOT / "cmake" / "targets" / "web.cmake").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotRegex(web_targets, r"(?m)^\s*CONFIGURE_DEPENDS\s*$")
+        self.assertEqual(web_targets.count("--prefer-offline"), 2)
+
+    def test_explicit_build_version_does_not_require_branch_context(self) -> None:
+        version_script = (ROOT / "cmake" / "prep" / "build_version.cmake").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'if(DEFINED ENV{BUILD_VERSION} AND NOT "$ENV{BUILD_VERSION}" STREQUAL "")',
+            version_script,
+        )
+        self.assertNotIn(
+            "if((DEFINED ENV{BRANCH}) AND (DEFINED ENV{BUILD_VERSION}))",
+            version_script,
+        )
+
+    def test_stable_respins_keep_the_stable_windows_version_ordinal(self) -> None:
+        wix_version = (ROOT / "cmake" / "packaging" / "windows_wix.cmake").read_text(
+            encoding="utf-8"
+        )
+        executable_version = (
+            ROOT / "cmake" / "prep" / "emit_windows_versioninfo.cmake"
+        ).read_text(encoding="utf-8")
+        bootstrapper = (
+            ROOT / "packaging" / "windows" / "bootstrapper" / "VibeshineInstaller.cs"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'elseif(_pre_tag STREQUAL "stable")\n'
+            '    # Stable respins remain in the stable channel. Their sortable ProductCodes\n'
+            '    # distinguish stable.N packages that share this MSI ProductVersion.\n'
+            '    set(_WIX_PRERELEASE_ORDINAL 99)',
+            wix_version,
+        )
+        self.assertIn(
+            'elseif("${_pre_tag}" STREQUAL "stable")\n'
+            '            # Keep stable respins in the stable channel. The timed revision\n'
+            '            # orders successive stable.N executable builds.\n'
+            '            set(_ordinal 99)',
+            executable_version,
+        )
+        self.assertIn(
+            'if (string.Equals(tag, "stable", StringComparison.Ordinal)) {\n'
+            '        // Stable respins share the stable ordinal; sortable ProductCodes order\n'
+            '        // distinct MSI packages within that channel.\n'
+            '        return 99;',
+            bootstrapper,
+        )
+
     def test_release_build_uses_shallow_cached_dependencies(self) -> None:
         workflow = load_workflow("ci-windows.yml")
         workflow_text = (ROOT / ".github" / "workflows" / "ci-windows.yml").read_text(
