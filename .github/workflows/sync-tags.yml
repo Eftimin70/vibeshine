@@ -1,0 +1,26 @@
+name: Sync upstream tags
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-tags:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream and fetch tags
+        run: |
+          git remote add upstream https://github.com/Nonary/vibeshine.git
+          git fetch upstream --tags
+
+      - name: Push tags to fork
+        run: |
+          git push origin --tags
