@@ -3,24 +3,25 @@ name: Sync upstream tags
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   sync-tags:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Add upstream and fetch tags
+      - name: Fetch upstream tags
         run: |
           git remote add upstream https://github.com/Nonary/vibeshine.git
           git fetch upstream --tags
 
-      - name: Push tags to fork
+      - name: Push upstream tags to fork
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TAGS }}
         run: |
+          git remote set-url origin "https://x-access-token:${SYNC_TOKEN}@github.com/Eftimin70/vibeshine.git"
           git push origin --tags
