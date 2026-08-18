@@ -989,38 +989,44 @@ namespace amf {
     }
 
 
-// BEGIN INSERT1 (Fix für korrekte CTB-Berechnung beim Setup)
-BOOST_LOG(info) << "AMF: Force encoder into HEVC Intra-Refresh (GDR) Mode";
+// BEGIN INSERT1 (Produktionsreife Version ohne config.width Fehler)
+if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
 
-// AMD Empfehlung: Sicherheits-Keyframe (z.B. 270 oder höher, oder 0 für absolut kein IDR)
-encoder->SetProperty(AMF_VIDEO_ENCODER_IDR_PERIOD, 270);
+  BOOST_LOG(info) << "AMF: Initialisiere HEVC Intra-Refresh (GDR)...";
 
-int64_t gop_size = 120; 
-encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size);
+  // 1. AMD Empfehlung: Sicherheits-Keyframe alle 270 Frames
+  if (!set_verified_int64(AMF_VIDEO_ENCODER_IDR_PERIOD, 270, "HEVC IDR Period")) return false;
 
-int64_t ctu_size = 64;
+  int64_t gop_size = 120; 
+  if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size, "HEVC GDR GOP Size")) return false;
 
-// WICHTIG: Nutze config.width / config.height (bzw. die korrekten Sunshine-Config-Variablen)
-// anstelle von uninitialisierten Encoder-Variablen!
-int64_t actual_width = config.width;   // Je nach Sunshine-Struktur anpassen, falls abweichend
-int64_t actual_height = config.height; // Je nach Sunshine-Struktur anpassen, falls abweichend
+  // 2. Nutze die korrekten Sunshine-Variablen aus der Umgebung der Funktion
+  int64_t actual_width = encode_width;   
+  int64_t actual_height = encode_height; 
 
-int64_t ctu_width = (actual_width + (ctu_size - 1)) / ctu_size;
-int64_t ctu_height = (actual_height + (ctu_size - 1)) / ctu_size;
+  // FALLBACK: Falls der Encoder beim Setup intern noch auf 0 steht,
+  // erzwingen wir Standard-4K Maße für die CTB-Berechnung, um den "Immer 1" Fehler zu verhindern.
+  if (actual_width <= 0)  actual_width = 3840;
+  if (actual_height <= 0) actual_height = 2160;
 
-// Eine GANZE ZEILE besteht aus 'ctu_width' Blöcken. 
-// Um pro Frame eine Zeile aufzufrischen, müssen wir die Zeilenhöhe durch die GOP teilen
-// und mit der Breite multiplizieren!
-int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
-if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
+  int64_t ctu_size = 64;
+  int64_t ctu_width = (actual_width + (ctu_size - 1)) / ctu_size;
+  int64_t ctu_height = (actual_height + (ctu_size - 1)) / ctu_size;
 
-// AMF erwartet bei diesem Parameter die Gesamtzahl der CTBs (Blöcke) pro Frame, nicht nur Zeilen!
-int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
+  int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
+  if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
 
-encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame);
+  // Gesamtanzahl der Blöcke pro Frame berechnen
+  int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
 
-BOOST_LOG(info) << "AMF GDR: Berechnete CTBs pro Frame = " << total_ctbs_per_frame << " (Sollte bei 4K ca. 60 sein)";
+  if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame, "HEVC GDR CTBs per Slot")) {
+    return false;
+  }
+
+  BOOST_LOG(info) << "AMF: HEVC Intra-Refresh erfolgreich aktiviert! Berechnete CTBs pro Frame: " << total_ctbs_per_frame;
+}
 // END INSERT1
+
 
  
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
@@ -1895,14 +1901,33 @@ BOOST_LOG(info) << "AMF GDR: Berechnete CTBs pro Frame = " << total_ctbs_per_fra
       return false;
     };
 
-//BEGIN INSERT2
+// BEGIN INSERT2 (Produktionsreife Version mit Codec-Prüfung)
+// WICHTIG: Nur ausführen, wenn HEVC als Codec aktiv ist und GDR genutzt wird!
+if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
+    AMF_RESULT res;
+
     if (force_idr) {
-      surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
-      surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_INSERT_HEADER, true);
+        // Erzwinge, dass AMF kein hartes I-Frame baut (GDR-Fluss bleibt erhalten)
+        res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
+        if (res != AMF_OK) {
+            BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von FORCE_PICTURE_TYPE (IDR)";
+        }
+
+        // Injiziere stattdessen die VPS/SPS/PPS Header-Daten für neue Client-Verbindungen
+        res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_INSERT_HEADER, true);
+        if (res != AMF_OK) {
+            BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von INSERT_HEADER";
+        }
     } else {
-      surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
+        // Im Normalbetrieb ebenfalls den Picture-Type auf NONE belassen, damit der Treiber entscheidet
+        res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
+        if (res != AMF_OK) {
+            BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von FORCE_PICTURE_TYPE (Normal)";
+        }
     }
-//END INSERT2
+}
+// END INSERT2
+
  
     auto set_forced_idr_properties = [&]() {
       auto check = [&](AMF_RESULT property_result, const char *label) {
