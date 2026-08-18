@@ -989,23 +989,24 @@ namespace amf {
     }
 
 
-// BEGIN INSERT1 (Produktionsreife Version ohne config.width Fehler)
-if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
+// BEGIN INSERT1 (Korrigiert für Sunshine Funktionsparameter)
+// Info: In dieser Funktion steht uns video_config (2. Parameter) zur Verfügung.
+// Da diese cpp-Datei in Vibeshine nur für HEVC genutzt wird, entfällt die Codec-Prüfung.
+if (video_config.gdr != 0) {
 
   BOOST_LOG(info) << "AMF: Initialisiere HEVC Intra-Refresh (GDR)...";
 
-  // 1. AMD Empfehlung: Sicherheits-Keyframe alle 270 Frames
+  // AMD Empfehlung: Sicherheits-Keyframe alle 270 Frames
   if (!set_verified_int64(AMF_VIDEO_ENCODER_IDR_PERIOD, 270, "HEVC IDR Period")) return false;
 
   int64_t gop_size = 120; 
   if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size, "HEVC GDR GOP Size")) return false;
 
-  // 2. Nutze die korrekten Sunshine-Variablen aus der Umgebung der Funktion
+  // Nutze die sicheren lokalen Sunshine-Variablen aus dieser Funktion
   int64_t actual_width = encode_width;   
   int64_t actual_height = encode_height; 
 
-  // FALLBACK: Falls der Encoder beim Setup intern noch auf 0 steht,
-  // erzwingen wir Standard-4K Maße für die CTB-Berechnung, um den "Immer 1" Fehler zu verhindern.
+  // FALLBACK: Falls beim allerersten Start 0 übergeben wird
   if (actual_width <= 0)  actual_width = 3840;
   if (actual_height <= 0) actual_height = 2160;
 
@@ -1026,6 +1027,7 @@ if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
   BOOST_LOG(info) << "AMF: HEVC Intra-Refresh erfolgreich aktiviert! Berechnete CTBs pro Frame: " << total_ctbs_per_frame;
 }
 // END INSERT1
+
 
 
  
@@ -1901,9 +1903,8 @@ if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
       return false;
     };
 
-// BEGIN INSERT2 (Produktionsreife Version mit Codec-Prüfung)
-// WICHTIG: Nur ausführen, wenn HEVC als Codec aktiv ist und GDR genutzt wird!
-if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
+// BEGIN INSERT2 (Korrigiert für encode_frame ohne config-Objekt)
+if (encoder) {
     AMF_RESULT res;
 
     if (force_idr) {
@@ -1919,7 +1920,7 @@ if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
             BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von INSERT_HEADER";
         }
     } else {
-        // Im Normalbetrieb ebenfalls den Picture-Type auf NONE belassen, damit der Treiber entscheidet
+        // Im Normalbetrieb ebenfalls den Picture-Type auf NONE belassen
         res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
         if (res != AMF_OK) {
             BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von FORCE_PICTURE_TYPE (Normal)";
@@ -1927,6 +1928,7 @@ if (config.codec == AV_CODEC_ID_HEVC && config.gdr_enabled) {
     }
 }
 // END INSERT2
+
 
  
     auto set_forced_idr_properties = [&]() {
