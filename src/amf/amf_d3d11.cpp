@@ -987,26 +987,41 @@ namespace amf {
             "PA initial scene-change QP")) return false;
       if (config.pa_activity_type && !set_verified_int64(AMF_PA_ACTIVITY_TYPE, *config.pa_activity_type, "PA activity type")) return false;
     }
-    
-//BEGIN INSERT1
-// Activate AMF GDR intra refresh for 4k HDR 60fps
-    BOOST_LOG(info) << "AMF: Force encoder into HEVC Intra-Refresh (GDR) Mode (gop_size = 120 und ctu_size = 64)";
 
-    encoder->SetProperty(AMF_VIDEO_ENCODER_IDR_PERIOD, 0);
 
-    int64_t gop_size = 120; 
-    encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size);
+// BEGIN INSERT1 (Fix für korrekte CTB-Berechnung beim Setup)
+BOOST_LOG(info) << "AMF: Force encoder into HEVC Intra-Refresh (GDR) Mode";
 
-    int64_t ctu_size = 64;
-//    int64_t ctu_width = (encode_width + (ctu_size - 1)) / ctu_size;
-    int64_t ctu_height = (encode_height + (ctu_size - 1)) / ctu_size;
-//    int64_t total_ctus = ctu_width * ctu_height;
+// AMD Empfehlung: Sicherheits-Keyframe (z.B. 270 oder höher, oder 0 für absolut kein IDR)
+encoder->SetProperty(AMF_VIDEO_ENCODER_IDR_PERIOD, 270);
 
-    int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
-    if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1; // Mindestens eine Zeile pro Frame
+int64_t gop_size = 120; 
+encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size);
 
-    encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, ctu_rows_per_frame);
+int64_t ctu_size = 64;
+
+// WICHTIG: Nutze config.width / config.height (bzw. die korrekten Sunshine-Config-Variablen)
+// anstelle von uninitialisierten Encoder-Variablen!
+int64_t actual_width = config.width;   // Je nach Sunshine-Struktur anpassen, falls abweichend
+int64_t actual_height = config.height; // Je nach Sunshine-Struktur anpassen, falls abweichend
+
+int64_t ctu_width = (actual_width + (ctu_size - 1)) / ctu_size;
+int64_t ctu_height = (actual_height + (ctu_size - 1)) / ctu_size;
+
+// Eine GANZE ZEILE besteht aus 'ctu_width' Blöcken. 
+// Um pro Frame eine Zeile aufzufrischen, müssen wir die Zeilenhöhe durch die GOP teilen
+// und mit der Breite multiplizieren!
+int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
+if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
+
+// AMF erwartet bei diesem Parameter die Gesamtzahl der CTBs (Blöcke) pro Frame, nicht nur Zeilen!
+int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
+
+encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame);
+
+BOOST_LOG(info) << "AMF GDR: Berechnete CTBs pro Frame = " << total_ctbs_per_frame << " (Sollte bei 4K ca. 60 sein)";
 // END INSERT1
+
  
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
     //
