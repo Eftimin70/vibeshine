@@ -988,47 +988,39 @@ namespace amf {
       if (config.pa_activity_type && !set_verified_int64(AMF_PA_ACTIVITY_TYPE, *config.pa_activity_type, "PA activity type")) return false;
     }
 
+// BEGIN INSERT1 (Direkte Ausführung ohne fehlerhafte Variablen-Abfrage)
+BOOST_LOG(info) << "AMF: Initialisiere HEVC Intra-Refresh (GDR)...";
 
-// BEGIN INSERT1 (Korrigiert für Sunshine Funktionsparameter)
-// Info: In dieser Funktion steht uns video_config (2. Parameter) zur Verfügung.
-// Da diese cpp-Datei in Vibeshine nur für HEVC genutzt wird, entfällt die Codec-Prüfung.
-if (video_config.gdr != 0) {
+// AMD Empfehlung: Sicherheits-Keyframe alle 270 Frames
+if (!set_verified_int64(AMF_VIDEO_ENCODER_IDR_PERIOD, 270, "HEVC IDR Period")) return false;
 
-  BOOST_LOG(info) << "AMF: Initialisiere HEVC Intra-Refresh (GDR)...";
+int64_t gop_size = 120; 
+if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size, "HEVC GDR GOP Size")) return false;
 
-  // AMD Empfehlung: Sicherheits-Keyframe alle 270 Frames
-  if (!set_verified_int64(AMF_VIDEO_ENCODER_IDR_PERIOD, 270, "HEVC IDR Period")) return false;
+// Nutze die sicheren lokalen Variablen dieser Funktion
+int64_t actual_width = encode_width;   
+int64_t actual_height = encode_height; 
 
-  int64_t gop_size = 120; 
-  if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size, "HEVC GDR GOP Size")) return false;
+// FALLBACK: Falls beim allerersten Start 0 übergeben wird, verhindern wir den "Wert 1"-Fehler
+if (actual_width <= 0)  actual_width = 3840;
+if (actual_height <= 0) actual_height = 2160;
 
-  // Nutze die sicheren lokalen Sunshine-Variablen aus dieser Funktion
-  int64_t actual_width = encode_width;   
-  int64_t actual_height = encode_height; 
+int64_t ctu_size = 64;
+int64_t ctu_width = (actual_width + (ctu_size - 1)) / ctu_size;
+int64_t ctu_height = (actual_height + (ctu_size - 1)) / ctu_size;
 
-  // FALLBACK: Falls beim allerersten Start 0 übergeben wird
-  if (actual_width <= 0)  actual_width = 3840;
-  if (actual_height <= 0) actual_height = 2160;
+int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
+if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
 
-  int64_t ctu_size = 64;
-  int64_t ctu_width = (actual_width + (ctu_size - 1)) / ctu_size;
-  int64_t ctu_height = (actual_height + (ctu_size - 1)) / ctu_size;
+// Gesamtanzahl der Blöcke pro Frame für ein echtes horizontales Refresh berechnen
+int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
 
-  int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
-  if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
-
-  // Gesamtanzahl der Blöcke pro Frame berechnen
-  int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
-
-  if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame, "HEVC GDR CTBs per Slot")) {
-    return false;
-  }
-
-  BOOST_LOG(info) << "AMF: HEVC Intra-Refresh erfolgreich aktiviert! Berechnete CTBs pro Frame: " << total_ctbs_per_frame;
+if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame, "HEVC GDR CTBs per Slot")) {
+  return false;
 }
+
+BOOST_LOG(info) << "AMF: HEVC Intra-Refresh erfolgreich aktiviert! Berechnete CTBs pro Frame: " << total_ctbs_per_frame;
 // END INSERT1
-
-
 
  
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
