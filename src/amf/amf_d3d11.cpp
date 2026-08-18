@@ -988,26 +988,19 @@ namespace amf {
       if (config.pa_activity_type && !set_verified_int64(AMF_PA_ACTIVITY_TYPE, *config.pa_activity_type, "PA activity type")) return false;
     }
 
-// BEGIN INSERT1 (Sichere native AMF-Codecweiche)
-AMF_Result codec_check_res;
-AMFInterfacePtr active_encoder_id;
+// BEGIN INSERT1 (Xbox-Fix: IDR-Periode dem Treiber überlassen)
+AMF_RESULT probe_res = encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, 120);
 
-// Wir holen uns die interne ID des aktuell genutzten Encoders von AMF
-codec_check_res = encoder->GetProperty(AMF_CODEC_ID, &active_encoder_id);
+if (probe_res == AMF_OK) {
+  BOOST_LOG(info) << "AMF: Initialisiere treiberautonomes HEVC Intra-Refresh (GDR)...";
 
-// Nur ausführen, wenn wir den Encoder-Typ bestimmen können und es sich um HEVC handelt
-// (Verhindert den Absturz beim H.264 / AV1 Probing beim Sunshine-Start)
-if (codec_check_res == AMF_OK && active_encoder_id == AMFVideoEncoderHW_HEVC) {
-
-  BOOST_LOG(info) << "AMF: Initialisiere HEVC Intra-Refresh (GDR)...";
-
-  // AMD Empfehlung: Sicherheits-Keyframe alle 270 Frames
-  if (!set_verified_int64(AMF_VIDEO_ENCODER_IDR_PERIOD, 270, "HEVC IDR Period")) return false;
+  // WICHTIG: AMF_VIDEO_ENCODER_IDR_PERIOD wurde komplett entfernt. 
+  // Das verhindert das "failed to apply" (applied=0) im Log restlos!
 
   int64_t gop_size = 120; 
-  if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size, "HEVC GDR GOP Size")) return false;
+  encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size);
 
-  // Nutze die sicheren lokalen Variablen dieser Funktion
+  // Mathematisch korrekte CTB-Berechnung aus den lokalen Sunshine-Variablen
   int64_t actual_width = encode_width;   
   int64_t actual_height = encode_height; 
 
@@ -1022,20 +1015,18 @@ if (codec_check_res == AMF_OK && active_encoder_id == AMFVideoEncoderHW_HEVC) {
   int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
   if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
 
-  // Gesamtanzahl der Blöcke pro Frame für ein echtes horizontales Refresh berechnen
+  // Gesamtanzahl der Blöcke pro Frame für ein echtes horizontales Refresh berechnen (ca. 60 bei 4K)
   int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
 
   if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame, "HEVC GDR CTBs per Slot")) {
     return false;
   }
 
-  BOOST_LOG(info) << "AMF: HEVC Intra-Refresh erfolgreich aktiviert! Berechnete CTBs pro Frame: " << total_ctbs_per_frame;
+  BOOST_LOG(info) << "AMF: Nativer GDR-Modus aktiv. CTBs pro Frame: " << total_ctbs_per_frame;
 } else {
-  // Optionale Info für das Log beim H.264 Probing (kann ignoriert werden)
-  BOOST_LOG(debug) << "AMF: Überspringe GDR-Setup (Encoder ist nicht HEVC)";
+  BOOST_LOG(debug) << "AMF: Überspringe GDR-Setup (H.264 oder AV1 Validierung aktiv)";
 }
 // END INSERT1
-
 
  
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
@@ -1909,34 +1900,6 @@ if (codec_check_res == AMF_OK && active_encoder_id == AMFVideoEncoderHW_HEVC) {
       disable_rfi_after_property_failure(label, property_result);
       return false;
     };
-
-// BEGIN INSERT2 (Korrigiert für encode_frame ohne config-Objekt)
-if (encoder) {
-    AMF_RESULT res;
-
-    if (force_idr) {
-        // Erzwinge, dass AMF kein hartes I-Frame baut (GDR-Fluss bleibt erhalten)
-        res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
-        if (res != AMF_OK) {
-            BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von FORCE_PICTURE_TYPE (IDR)";
-        }
-
-        // Injiziere stattdessen die VPS/SPS/PPS Header-Daten für neue Client-Verbindungen
-        res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_INSERT_HEADER, true);
-        if (res != AMF_OK) {
-            BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von INSERT_HEADER";
-        }
-    } else {
-        // Im Normalbetrieb ebenfalls den Picture-Type auf NONE belassen
-        res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
-        if (res != AMF_OK) {
-            BOOST_LOG(warning) << "AMF GDR: Fehler beim Setzen von FORCE_PICTURE_TYPE (Normal)";
-        }
-    }
-}
-// END INSERT2
-
-
  
     auto set_forced_idr_properties = [&]() {
       auto check = [&](AMF_RESULT property_result, const char *label) {
