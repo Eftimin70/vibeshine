@@ -988,23 +988,28 @@ namespace amf {
       if (config.pa_activity_type && !set_verified_int64(AMF_PA_ACTIVITY_TYPE, *config.pa_activity_type, "PA activity type")) return false;
     }
 
-// BEGIN INSERT1 (Xbox-Fix: IDR-Periode dem Treiber überlassen)
-AMF_RESULT probe_res = encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, 120);
 
-if (probe_res == AMF_OK) {
-  BOOST_LOG(info) << "AMF: Initialisiere treiberautonomes HEVC Intra-Refresh (GDR)...";
 
-  // WICHTIG: AMF_VIDEO_ENCODER_IDR_PERIOD wurde komplett entfernt. 
-  // Das verhindert das "failed to apply" (applied=0) im Log restlos!
+  // BEGIN INSERT1 (Xbox-Safe driver-autonomous HEVC GDR configuration)
+  AMF_RESULT probe_res = encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, 120);
+
+  if (probe_res == AMF_OK) {
+  BOOST_LOG(info) << "AMF: Initializing driver-autonomous HEVC Intra-Refresh (GDR)...";
+
+  // NOTE: AMF_VIDEO_ENCODER_IDR_PERIOD is intentionally omitted. 
+  // Forcing a manual IDR period during GDR mode causes the AMD driver to reject 
+  // the property (applied=0), which triggers strict hardware decoder crashes on Xbox.
+  // We leave IDR management entirely to the driver's internal state machine.
 
   int64_t gop_size = 120; 
   encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, gop_size);
 
-  // Mathematisch korrekte CTB-Berechnung aus den lokalen Sunshine-Variablen
+  // Mathematically correct CTB calculation using local Sunshine variables
   int64_t actual_width = encode_width;   
   int64_t actual_height = encode_height; 
 
-  // FALLBACK: Falls beim allerersten Start 0 übergeben wird, verhindern wir den "Wert 1"-Fehler
+  // FALLBACK: If the encoder reports 0 dimensions during the very first initialization pass,
+  // we enforce 4K defaults to prevent the formula from collapsing into an invalid "value = 1" loop.
   if (actual_width <= 0)  actual_width = 3840;
   if (actual_height <= 0) actual_height = 2160;
 
@@ -1015,18 +1020,20 @@ if (probe_res == AMF_OK) {
   int64_t ctu_rows_per_frame = (ctu_height + gop_size - 1) / gop_size;
   if (ctu_rows_per_frame < 1) ctu_rows_per_frame = 1;
 
-  // Gesamtanzahl der Blöcke pro Frame für ein echtes horizontales Refresh berechnen (ca. 60 bei 4K)
+  // Calculate the total number of blocks per frame required for a proper horizontal refresh
   int64_t total_ctbs_per_frame = ctu_rows_per_frame * ctu_width;
 
   if (!set_verified_int64(AMF_VIDEO_ENCODER_HEVC_INTRA_REFRESH_NUM_CTBS_PER_SLOT, total_ctbs_per_frame, "HEVC GDR CTBs per Slot")) {
     return false;
   }
 
-  BOOST_LOG(info) << "AMF: Nativer GDR-Modus aktiv. CTBs pro Frame: " << total_ctbs_per_frame;
+  BOOST_LOG(info) << "AMF: Native GDR mode successfully activated! CTBs per frame: " << total_ctbs_per_frame;
 } else {
-  BOOST_LOG(debug) << "AMF: Überspringe GDR-Setup (H.264 oder AV1 Validierung aktiv)";
+  // Silent fallback during H.264 / AV1 capability probing at Sunshine startup
+  BOOST_LOG(debug) << "AMF: Skipping GDR setup (H.264 or AV1 validation active)";
 }
 // END INSERT1
+
 
  
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
