@@ -1,4 +1,4 @@
-# This is a fork of Vibeshine that includes a fix for the infamous artefacts when running Moonlight on Xbox 
+# This is a fork of Vibeshine that includes a fix for the infamous artifacts when running Moonlight on Xbox 
 
 # Vibeshine
 
