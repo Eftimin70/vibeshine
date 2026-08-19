@@ -122,7 +122,7 @@ const preferredGpu = computed<GpuMetadata | null>(() => {
 function encoderFamily(encoder: string): SettingsField['encoderFamily'] | undefined {
   if (encoder === 'nvenc') return 'nvidia';
   if (encoder === 'quicksync') return 'intel';
-  if (encoder === 'amdvce' || encoder === 'amdvce_legacy') return 'amd';
+  if (encoder === 'amdvce_experimental' || encoder === 'amdvce_ffmpeg') return 'amd';
   return undefined;
 }
 
@@ -166,7 +166,7 @@ const automaticEncoderLabel = computed(() => {
       : family === 'intel'
         ? 'ui.settings.options.encoder.quicksync'
         : family === 'amd'
-          ? 'ui.settings.options.encoder.amdvce'
+          ? 'ui.settings.options.encoder.amdvce_ffmpeg'
           : '';
   if (!encoderKey || !gpuName) return t('ui.settings.options.encoder.auto');
   return t('ui.settings.options.encoder.auto_selected', {
@@ -477,8 +477,8 @@ function optionsFor(field: SettingsField): SettingsOption[] {
         ...common,
         localizedOption('nvenc', 'ui.settings.options.encoder.nvenc'),
         localizedOption('quicksync', 'ui.settings.options.encoder.quicksync'),
-        localizedOption('amdvce', 'ui.settings.options.encoder.amdvce'),
-        localizedOption('amdvce_legacy', 'ui.settings.options.encoder.amdvce_legacy'),
+        localizedOption('amdvce_ffmpeg', 'ui.settings.options.encoder.amdvce_ffmpeg'),
+        localizedOption('amdvce_experimental', 'ui.settings.options.encoder.amdvce_experimental'),
         localizedOption('mediafoundation', 'ui.settings.options.encoder.mediafoundation'),
         localizedOption('software', 'ui.settings.options.encoder.software'),
       ];
@@ -831,7 +831,12 @@ onMounted(() => void load());
                       {{ fieldDescription(field) }}
                     </span>
                     <span
-                      v-if="field.warningKey && Number(values[field.key]) > 0"
+                      v-if="
+                        field.warningKey &&
+                        (field.kind === 'boolean'
+                          ? isTrue(values[field.key])
+                          : Number(values[field.key]) > 0)
+                      "
                       class="settings-row__warning"
                     >
                       {{ t(field.warningKey) }}
