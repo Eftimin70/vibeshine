@@ -1900,9 +1900,10 @@ if (client_config.enableIntraRefresh == 1) {
     };
 
 // BEGIN INSERT2
-// Check if client requested GDR
-if (encoder && client_config.enableIntraRefresh == 1) {
+// Check if GDR is requested by client
+if (encoder && current_config.enableIntraRefresh == 1) {
     AMF_RESULT res;
+
     if (force_idr) {
         res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
         if (res != AMF_OK) {
@@ -1913,7 +1914,6 @@ if (encoder && client_config.enableIntraRefresh == 1) {
             BOOST_LOG(warning) << "AMF GDR: Failed to set INSERT_HEADER";
         }
     } else {
-        // During regular frames, leave picture type to NONE so the driver decides the pacing autonomously
         res = surface->SetProperty(AMF_VIDEO_ENCODER_HEVC_FORCE_PICTURE_TYPE, AMF_VIDEO_ENCODER_HEVC_PICTURE_TYPE_NONE);
         if (res != AMF_OK) {
             BOOST_LOG(warning) << "AMF GDR: Failed to set FORCE_PICTURE_TYPE (Normal operation)";
