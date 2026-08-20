@@ -1,4 +1,6 @@
-# This is a fork of Vibeshine that includes a fix for the infamous artifacts when running Moonlight on Xbox 
+# This is a fork of Vibeshine that includes a fix for the infamous artifacts when running Moonlight on Xbox. Fix only works when encoder 'AMD AMF/VCE (Experimental)' is selected
+
+
 
 # Vibeshine
 
