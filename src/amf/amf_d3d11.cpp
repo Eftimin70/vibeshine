@@ -1002,7 +1002,6 @@ if (client_config.enableIntraRefresh == 1) {
     int64_t actual_width = encode_width;   
     int64_t actual_height = encode_height; 
     
-    // set default?
     if (actual_width <= 0)  actual_width = 3840;
     if (actual_height <= 0) actual_height = 2160;
 
@@ -1019,17 +1018,15 @@ if (client_config.enableIntraRefresh == 1) {
       return false;
     }
 
-    BOOST_LOG(info) << "AMF: Native GDR mode successfully activated! CTBs per frame: " << total_ctbs_per_frame;
+    BOOST_LOG(info) << "AMF: Native GDR mode successfully activated!";
   } else {
-    // Silent fallback during H.264 / AV1 capability probing at Sunshine startup
     BOOST_LOG(debug) << "AMF: Skipping GDR setup (H.264 or AV1 validation active)";
   }
 } else {
   BOOST_LOG(info) << "AMF: Intra-Refresh disabled (not requested by client configuration)";
 }
 // END INSERT1
-
- 
+    
     // NOTE: LOWLATENCY_MODE is intentionally NOT forced here.
     //
     // Previously this block hard-coded AMF_VIDEO_ENCODER_(HEVC_)LOWLATENCY_MODE = true
