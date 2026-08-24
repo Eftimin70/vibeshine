@@ -1000,7 +1000,7 @@ if (client_config.enableIntraRefresh == 1) {
     const int64_t ctu_width = (width + CTU_SIZE - 1) / CTU_SIZE;  
     const int64_t ctu_height = (height + CTU_SIZE - 1) / CTU_SIZE; 
 
-    constexpr int64_t TARGET_DURATION = 120; 
+    constexpr int64_t TARGET_DURATION = GOP_SIZE; 
     const int64_t ctbs_per_slot = 
       std::max<int64_t>(1, (ctu_width * ctu_height) / TARGET_DURATION); 
 
