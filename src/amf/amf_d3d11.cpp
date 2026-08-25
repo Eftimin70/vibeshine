@@ -992,7 +992,9 @@ namespace amf {
 if (client_config.enableIntraRefresh == 1) {
   constexpr int64_t GOP_SIZE = 120; 
   constexpr int64_t CTU_SIZE = 64;
-
+  
+  encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_NUM_GOPS_PER_IDR, 0);
+  
   if (encoder->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, GOP_SIZE) == AMF_OK) {
     const int64_t width = (encode_width > 0) ? encode_width : 3840;
     const int64_t height = (encode_height > 0) ? encode_height : 2160;
