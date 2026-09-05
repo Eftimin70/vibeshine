@@ -3,9 +3,6 @@ name: Sync upstream tags
 on:
   workflow_dispatch:
 
-#  schedule:
-#    - cron: "0 8 * * *"
-
 jobs:
   sync-tags:
     runs-on: ubuntu-latest
