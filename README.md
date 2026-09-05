@@ -1,5 +1,6 @@
-# This is a fork of Vibeshine that includes a fix for the infamous artifacts when running Moonlight on Xbox. Fix only works when encoder 'AMD AMF/VCE (Experimental)' is selected
-# I am only testing this on a RX 9070 / Xbox combination. Older Radeon cards might show problems.
+# No longer needed, Intra Refresh has been added to the master
+## This is a fork of Vibeshine that includes a fix for the infamous artifacts when running Moonlight on Xbox. Fix only works when encoder 'AMD AMF/VCE (Experimental)' is selected
+## I am only testing this on a RX 9070 / Xbox combination. Older Radeon cards might show problems.
 
 
 
